@@ -89,7 +89,9 @@ const VideoCard: React.FC<VideoCardProps> = ({
 
   const hasTrimEdits =
     videoWithMeta.edits?.trimStart !== undefined &&
-    videoWithMeta.edits?.trimEnd !== undefined;
+    videoWithMeta.edits?.trimEnd !== undefined &&
+    (videoWithMeta.edits.trimStart > 0 || 
+     (video.duration !== undefined && videoWithMeta.edits.trimEnd < video.duration));
 
   // Calculate thumbnail timestamp (matching main process logic)
   const getThumbnailTime = (): number => {

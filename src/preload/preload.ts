@@ -62,8 +62,7 @@ contextBridge.exposeInMainWorld('api', {
     targetSizeMB?: number,
     jobId?: string,
     audioMode?: 'combine' | 'separate',
-    outputType?: 'video' | 'mp3',
-    compressionQuality?: 'fast' | 'standard' | 'high'
+    outputType?: 'video' | 'mp3'
   ) =>
     ipcRenderer.invoke(
       'export-video',
@@ -76,8 +75,7 @@ contextBridge.exposeInMainWorld('api', {
       targetSizeMB,
       jobId,
       audioMode,
-      outputType,
-      compressionQuality
+      outputType
     ),
   cancelExport: () => ipcRenderer.invoke('cancel-export'),
 

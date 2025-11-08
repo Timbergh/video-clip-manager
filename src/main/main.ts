@@ -928,8 +928,7 @@ ipcMain.handle('export-video', async (
   targetSizeMB?: number,
   jobId?: string,
   audioMode?: 'combine' | 'separate',
-  outputType?: 'video' | 'mp3',
-  compressionQuality: 'fast' | 'standard' | 'high' = 'standard'
+  outputType?: 'video' | 'mp3'
 ) => {
   const duration = endTime - startTime;
   const meta: any = await new Promise((resolve) => {
@@ -990,45 +989,8 @@ ipcMain.handle('export-video', async (
     return { filterParts, mapOptions };
   };
 
-  // Get encoding preset based on compression quality
-  const getPreset = (): string => {
-    switch (compressionQuality) {
-      case 'fast': return 'fast';
-      case 'standard': return 'medium';
-      case 'high': return 'veryslow';
-      default: return 'medium';
-    }
-  };
 
-  // Get CRF value based on compression quality (lower = better quality)
-  const getCRF = (): number => {
-    switch (compressionQuality) {
-      case 'fast': return 23;
-      case 'standard': return 21;
-      case 'high': return 18; // Lower CRF for better quality (was 19)
-      default: return 21;
-    }
-  };
-
-  // Get advanced x264 parameters based on compression quality
-  const getX264Params = (): string => {
-    const baseParams = 'aq-mode=2:aq-strength=1.0';
-    
-    switch (compressionQuality) {
-      case 'fast':
-        return baseParams;
-      case 'standard':
-        // Light quality improvements without significant speed impact
-        return `${baseParams}:subme=6:trellis=1:ref=3:bframes=3`;
-      case 'high':
-        // Maximum quality settings
-        return `${baseParams}:aq-mode=3:aq-strength=1.2:me=umh:subme=9:trellis=2:ref=6:bframes=6:deblock=1,1:psy-rd=1.0:0.15`;
-      default:
-        return baseParams;
-    }
-  };
-
-  const encodeOnce = (videoBitrateKbps?: number, useCRF: boolean = false) => {
+  const encodeVideo = (videoBitrateKbps?: number) => {
     return new Promise<string | { status: 'canceled' }>((resolve, reject) => {
       let command = ffmpeg(inputPath)
         .setStartTime(startTime)
@@ -1066,46 +1028,28 @@ ipcMain.handle('export-video', async (
         // Video codec selection based on container
         let videoCodec = 'libx264';
         let audioCodec = 'aac';
-        const preset = getPreset();
-        const baseOptions = ['-y', `-preset ${preset}`];
-
+        
         if (outputExt === '.avi') {
           videoCodec = 'mpeg4';
           audioCodec = 'libmp3lame';
         }
 
-        const videoOptions: string[] = [...baseOptions];
+        const videoOptions: string[] = [
+          '-y',
+          '-preset medium',
+          `-b:v ${videoBitrateKbps}k`,
+          `-maxrate ${Math.max(200, Math.floor(videoBitrateKbps * 1.2))}k`,
+          `-bufsize ${Math.max(400, Math.floor(videoBitrateKbps * 2.4))}k`,
+          `-b:a ${audioBitrateKbps}k`,
+          '-shortest',
+          '-fflags +genpts',
+          '-avoid_negative_ts make_zero'
+        ];
         
-        if (useCRF && outputExt !== '.avi') {
-          // Use CRF mode for better quality
-          const crf = getCRF();
-          videoOptions.push(`-crf ${crf}`);
-          // Set max bitrate as a safety limit
-          videoOptions.push(`-maxrate ${Math.max(100, Math.floor(videoBitrateKbps * 1.2))}k`);
-          videoOptions.push(`-bufsize ${Math.max(200, Math.floor(videoBitrateKbps * 2.5))}k`);
-        } else {
-          // Use target bitrate mode
-          videoOptions.push(`-b:v ${videoBitrateKbps}k`);
-          videoOptions.push(`-maxrate ${Math.max(100, Math.floor(videoBitrateKbps * 1.1))}k`);
-          videoOptions.push(`-bufsize ${Math.max(200, Math.floor(videoBitrateKbps * 2))}k`);
-        }
-
-        // Add quality improvements for complex scenes
         if (outputExt !== '.avi') {
           videoOptions.push('-profile:v high');
           videoOptions.push('-level 4.0');
-          // Better handling of motion and detail
-          videoOptions.push('-tune film');
-          // Advanced x264 parameters for better quality
-          videoOptions.push(`-x264-params "${getX264Params()}"`);
-        }
-
-        videoOptions.push(`-b:a ${audioBitrateKbps}k`);
-        
-        // Add flags to prevent AAC encoding issues
-        if (outputExt !== '.avi') {
-          videoOptions.push('-shortest'); // Ensure audio and video end together
-          videoOptions.push('-fflags +genpts'); // Generate presentation timestamps
+          videoOptions.push('-x264-params "aq-mode=2:aq-strength=1.0:subme=6:trellis=1:ref=4:bframes=4:me=hex:merange=16"');
         }
 
         command = command
@@ -1117,7 +1061,6 @@ ipcMain.handle('export-video', async (
           command = command.outputOptions(['-movflags +faststart']);
         }
       } else {
-        // Full quality - copy video stream
         let audioCodec = 'aac';
         if (outputExt === '.avi') {
           audioCodec = 'libmp3lame';
@@ -1156,8 +1099,18 @@ ipcMain.handle('export-video', async (
           } catch {}
         })
         .on('end', () => {
-          try { activeExports.delete(event.sender.id); } catch {}
-          resolve(outputPath);
+          try {
+            activeExports.delete(event.sender.id);
+            try {
+              const stats = fs.statSync(outputPath);
+              if (stats.size === 0) {
+                reject(new Error('Output file is empty'));
+                return;
+              }
+            } catch (err) {
+            }
+            resolve(outputPath);
+          } catch {}
         })
         .on('error', (err, stdout, stderr) => {
           const senderId = event.sender.id;
@@ -1168,6 +1121,20 @@ ipcMain.handle('export-video', async (
             try { canceledExports.delete(senderId); } catch {}
             resolve({ status: 'canceled' });
           } else {
+            const isAACQueueWarning = /frames left in the queue|Qavg/i.test(stderr || '') && 
+                                     !/error|failed|invalid/i.test(stderr || '');
+            
+            if (isAACQueueWarning && fs.existsSync(outputPath)) {
+              try {
+                const stats = fs.statSync(outputPath);
+                if (stats.size > 0) {
+                  console.warn('AAC queue warning detected but file exists, treating as success:', stderr);
+                  resolve(outputPath);
+                  return;
+                }
+              } catch {}
+            }
+            
             console.error('Export error:', err);
             console.error('FFmpeg stderr:', stderr);
             reject(new Error(`Export failed: ${msg}\n${stderr}`));
@@ -1177,386 +1144,41 @@ ipcMain.handle('export-video', async (
     });
   };
 
-  // Two-pass encoding for high quality mode
-  const encodeTwoPass = (videoBitrateKbps: number): Promise<string | { status: 'canceled' }> => {
-    return new Promise(async (resolve, reject) => {
-      const outputExt = path.extname(outputPath).toLowerCase();
-      const preset = getPreset();
-      const audioBitrateKbps = 128;
-      const tempLogFile = path.join(os.tmpdir(), `ffmpeg2pass_${Date.now()}.log`);
-
-      // Video codec selection
-      let videoCodec = 'libx264';
-      let audioCodec = 'aac';
-      if (outputExt === '.avi') {
-        // AVI doesn't support two-pass well, fall back to single pass
-        return encodeOnce(videoBitrateKbps, false).then(resolve).catch(reject);
-      }
-
-      const { filterParts, mapOptions } = buildFilterAndMaps(audioMode || 'combine', 'video');
-
-      // First pass: analyze video
-      // Use video filter for trimming to ensure two-pass encoding works correctly
-      const trimFilter = `[0:v]trim=start=${startTime}:duration=${duration},setpts=PTS-STARTPTS[v]`;
-      const firstPassOptions = [
-        '-y',
-        `-preset ${preset}`,
-        `-b:v ${videoBitrateKbps}k`,
-        `-maxrate ${Math.max(100, Math.floor(videoBitrateKbps * 1.1))}k`,
-        `-bufsize ${Math.max(200, Math.floor(videoBitrateKbps * 2))}k`,
-        '-profile:v high',
-        '-level 4.0',
-        '-tune film',
-        `-x264-params "${getX264Params()}"`,
-        '-pass 1',
-        '-passlogfile', tempLogFile,
-        '-an', // No audio in first pass
-        '-f null'
-      ];
-
-      // Use video filter for trimming (more reliable for two-pass encoding)
-      let firstPassCommand = ffmpeg(inputPath)
-        .videoCodec(videoCodec)
-        .complexFilter([trimFilter])
-        .outputOptions(['-map', '[v]']) // Map the trimmed video
-        .outputOptions(firstPassOptions)
-        .output('NUL'); // Windows null device
-
-      // Note: Audio filters are not needed in first pass since we use -an
-
-      try {
-        await new Promise<void>((resolvePass, rejectPass) => {
-          const senderId = event.sender.id;
-          firstPassCommand
-            .on('start', () => {
-              try {
-                activeExports.set(senderId, firstPassCommand);
-              } catch {}
-            })
-            .on('end', () => {
-              try { activeExports.delete(senderId); } catch {}
-              // Verify log file was created successfully
-              const logFile = `${tempLogFile}-0.log`;
-              if (!fs.existsSync(logFile)) {
-                rejectPass(new Error('First pass completed but log file was not created'));
-                return;
-              }
-              resolvePass();
-            })
-            .on('error', (err, stdout, stderr) => {
-              try { activeExports.delete(senderId); } catch {}
-              const msg = (err && err.message) ? err.message : 'Unknown error';
-              const wasCanceled = canceledExports.has(senderId) || /kill|SIGKILL|terminated|canceled/i.test(msg);
-              if (wasCanceled) {
-                try { canceledExports.delete(senderId); } catch {}
-                rejectPass({ status: 'canceled' });
-              } else {
-                console.error('First pass error:', err);
-                rejectPass(new Error(`First pass failed: ${msg}\n${stderr}`));
-              }
-            })
-            .on('progress', (progress) => {
-              if (mainWindow) {
-                try {
-                  // Report first pass as 0-50% progress
-                  const adjustedProgress = { ...progress, percent: (progress.percent || 0) * 0.5 };
-                  mainWindow.webContents.send('export-progress', { ...adjustedProgress, jobId });
-                } catch {}
-              }
-            })
-            .run();
-        });
-
-        // Check for cancellation
-        if (canceledExports.has(event.sender.id)) {
-          try {
-            if (fs.existsSync(tempLogFile)) fs.unlinkSync(tempLogFile);
-          } catch {}
-          return resolve({ status: 'canceled' });
-        }
-
-        // Verify first pass log file exists and is valid before proceeding
-        const logFile = `${tempLogFile}-0.log`;
-        const mbtreeFile = `${tempLogFile}-0.log.mbtree`;
-        
-        // Wait a bit for file system to sync
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        if (!fs.existsSync(logFile)) {
-          const errorMsg = 'First pass log file not found. First pass may have failed silently.';
-          console.error(errorMsg);
-          try {
-            if (fs.existsSync(tempLogFile)) fs.unlinkSync(tempLogFile);
-          } catch {}
-          return reject(new Error(errorMsg));
-        }
-        
-        // Check if log file has reasonable size (at least 1KB)
-        try {
-          const logStats = fs.statSync(logFile);
-          if (logStats.size < 1024) {
-            const errorMsg = `First pass log file is too small (${logStats.size} bytes). First pass may not have completed properly.`;
-            console.error(errorMsg);
-            try {
-              if (fs.existsSync(tempLogFile)) fs.unlinkSync(tempLogFile);
-              if (fs.existsSync(logFile)) fs.unlinkSync(logFile);
-              if (fs.existsSync(mbtreeFile)) fs.unlinkSync(mbtreeFile);
-            } catch {}
-            return reject(new Error(errorMsg));
-          }
-        } catch (err) {
-          console.warn('Could not check log file size:', err);
-        }
-
-        // Second pass: encode with audio
-        // Build filter chain: trim audio tracks first, then apply volume/mixing
-        const allFilters: string[] = [trimFilter]; // Start with video trim
-        
-        if (numAudioStreams > 0) {
-          // Trim each audio track
-          const trimmedAudioLabels: string[] = [];
-          for (let i = 0; i < numAudioStreams; i++) {
-            const label = `at${i}`;
-            allFilters.push(`[0:a:${i}]atrim=start=${startTime}:duration=${duration},asetpts=PTS-STARTPTS[${label}]`);
-            trimmedAudioLabels.push(`[${label}]`);
-          }
-          
-          // Apply volume adjustments and mixing
-          const useCombine = audioMode === 'combine';
-          if (useCombine) {
-            // Apply volume to each track, then mix
-            const volumeAdjustedLabels: string[] = [];
-            for (let i = 0; i < numAudioStreams; i++) {
-              const vol = getVolumeForIndex(i);
-              if (Math.abs(vol - 1.0) > 1e-6) {
-                const volLabel = `av${i}`;
-                allFilters.push(`${trimmedAudioLabels[i]}volume=${vol}[${volLabel}]`);
-                volumeAdjustedLabels.push(`[${volLabel}]`);
-              } else {
-                volumeAdjustedLabels.push(trimmedAudioLabels[i]);
-              }
-            }
-            if (volumeAdjustedLabels.length === 1) {
-              // Single track, no mixing needed - use it directly
-              allFilters.push(`${volumeAdjustedLabels[0]}anull[aout]`);
-            } else {
-              allFilters.push(`${volumeAdjustedLabels.join('')}amix=inputs=${volumeAdjustedLabels.length}:duration=longest[aout]`);
-            }
-          } else {
-            // Keep tracks separate with volume adjustments
-            for (let i = 0; i < numAudioStreams; i++) {
-              const vol = getVolumeForIndex(i);
-              if (Math.abs(vol - 1.0) > 1e-6) {
-                allFilters.push(`${trimmedAudioLabels[i]}volume=${vol}[a${i}]`);
-              } else {
-                // Volume is 1.0, use trimmed audio directly
-                allFilters.push(`${trimmedAudioLabels[i]}anull[a${i}]`);
-              }
-            }
-          }
-        }
-        
-        const secondPassOptions = [
-          '-y',
-          `-preset ${preset}`,
-          `-b:v ${videoBitrateKbps}k`,
-          `-maxrate ${Math.max(100, Math.floor(videoBitrateKbps * 1.1))}k`,
-          `-bufsize ${Math.max(200, Math.floor(videoBitrateKbps * 2))}k`,
-          '-profile:v high',
-          '-level 4.0',
-          '-tune film',
-          `-x264-params "${getX264Params()}"`,
-          '-pass 2',
-          '-passlogfile', tempLogFile,
-          `-b:a ${audioBitrateKbps}k`,
-          '-fflags +genpts' // Generate presentation timestamps for better sync
-        ];
-
-        if (outputExt === '.mp4' || outputExt === '.mov') {
-          secondPassOptions.push('-movflags +faststart');
-        }
-
-        // Use the same video filter for trimming as first pass, plus audio filters
-        let secondPassCommand = ffmpeg(inputPath)
-          .videoCodec(videoCodec)
-          .audioCodec(audioCodec)
-          .complexFilter(allFilters)
-          .outputOptions(['-map', '[v]']) // Map the trimmed video
-          .outputOptions(secondPassOptions)
-          .output(outputPath);
-
-        // Add audio mapping
-        if (audioMode === 'combine' && numAudioStreams > 0) {
-          secondPassCommand = secondPassCommand.outputOptions(['-map', '[aout]']);
-        } else if (audioMode === 'separate' && numAudioStreams > 0) {
-          for (let i = 0; i < numAudioStreams; i++) {
-            secondPassCommand = secondPassCommand.outputOptions(['-map', `[a${i}]`]);
-          }
-        }
-
-        secondPassCommand
-          .on('start', () => {
-            try {
-              activeExports.set(event.sender.id, secondPassCommand);
-            } catch {}
-          })
-          .on('end', () => {
-            try {
-              activeExports.delete(event.sender.id);
-              // Clean up log file
-              try {
-                if (fs.existsSync(tempLogFile)) fs.unlinkSync(tempLogFile);
-                if (fs.existsSync(`${tempLogFile}-0.log`)) fs.unlinkSync(`${tempLogFile}-0.log`);
-                if (fs.existsSync(`${tempLogFile}-0.log.mbtree`)) fs.unlinkSync(`${tempLogFile}-0.log.mbtree`);
-              } catch {}
-            } catch {}
-            resolve(outputPath);
-          })
-          .on('error', (err, stdout, stderr) => {
-            const senderId = event.sender.id;
-            const msg = (err && err.message) ? err.message : 'Unknown error';
-            const wasCanceled = canceledExports.has(senderId) || /kill|SIGKILL|terminated|canceled/i.test(msg);
-            
-            // Check if this is a non-critical AAC warning about frames in queue
-            const isAACQueueWarning = /frames left in the queue|Qavg/i.test(stderr || '') && 
-                                     !/error|failed|invalid/i.test(stderr || '');
-            
-            // If output file exists and is valid, treat AAC queue warnings as non-fatal
-            if (isAACQueueWarning && fs.existsSync(outputPath)) {
-              try {
-                const stats = fs.statSync(outputPath);
-                if (stats.size > 0) {
-                  console.warn('AAC queue warning detected but file exists, treating as success:', stderr);
-                  try {
-                    activeExports.delete(senderId);
-                    // Clean up log file
-                    try {
-                      if (fs.existsSync(tempLogFile)) fs.unlinkSync(tempLogFile);
-                      if (fs.existsSync(`${tempLogFile}-0.log`)) fs.unlinkSync(`${tempLogFile}-0.log`);
-                      if (fs.existsSync(`${tempLogFile}-0.log.mbtree`)) fs.unlinkSync(`${tempLogFile}-0.log.mbtree`);
-                    } catch {}
-                  } catch {}
-                  return resolve(outputPath);
-                }
-              } catch {}
-            }
-            
-            try {
-              activeExports.delete(senderId);
-              // Clean up log file
-              try {
-                if (fs.existsSync(tempLogFile)) fs.unlinkSync(tempLogFile);
-                if (fs.existsSync(`${tempLogFile}-0.log`)) fs.unlinkSync(`${tempLogFile}-0.log`);
-                if (fs.existsSync(`${tempLogFile}-0.log.mbtree`)) fs.unlinkSync(`${tempLogFile}-0.log.mbtree`);
-              } catch {}
-            } catch {}
-            if (wasCanceled) {
-              try { canceledExports.delete(senderId); } catch {}
-              resolve({ status: 'canceled' });
-            } else {
-              console.error('Second pass error:', err);
-              console.error('FFmpeg stderr:', stderr);
-              reject(new Error(`Second pass failed: ${msg}\n${stderr}`));
-            }
-          })
-          .on('progress', (progress) => {
-            if (mainWindow) {
-              try {
-                // Report second pass as 50-100% progress
-                const adjustedProgress = { ...progress, percent: 50 + ((progress.percent || 0) * 0.5) };
-                mainWindow.webContents.send('export-progress', { ...adjustedProgress, jobId });
-              } catch {}
-            }
-          })
-          .run();
-      } catch (err: any) {
-        try {
-          if (fs.existsSync(tempLogFile)) fs.unlinkSync(tempLogFile);
-        } catch {}
-        if (err && typeof err === 'object' && (err as any).status === 'canceled') {
-          return resolve({ status: 'canceled' });
-        }
-        reject(err);
-      }
-    });
-  };
-
   if (outputType === 'mp3' || quality !== 'compressed') {
-    return await encodeOnce();
+    return await encodeVideo();
   }
 
-  // Compressed with size target: improved bitrate calculation and encoding
   const targetMB = targetSizeMB || 10;
   const targetBytes = targetMB * 1024 * 1024;
-  // Safety ratio to aim for ~95% of target (e.g., 9.5MB for 10MB target)
+  const audioBitrateKbps = 128;
+  
   const safetyRatio = 0.95;
-  const audioBitrateKbps = 128; // estimate audio bitrate (combined)
+  const containerOverhead = 0.025;
   const targetBits = Math.max(1, Math.floor(targetBytes * safetyRatio * 8));
-  // Calculate video bitrate more accurately, accounting for container overhead
-  const containerOverhead = 0.02; // 2% overhead for container format
   const effectiveTargetBits = Math.floor(targetBits * (1 - containerOverhead));
-  let videoBitrateKbps = Math.max(100, Math.floor(effectiveTargetBits / duration / 1000) - audioBitrateKbps);
-
-  // Use two-pass encoding for high quality mode
-  if (compressionQuality === 'high') {
-    const result = await encodeTwoPass(videoBitrateKbps);
-    if (typeof result === 'object' && (result as any).status === 'canceled') {
-      return result;
-    }
-
-    // Verify size and adjust if needed
-    try {
-      let size = fs.statSync(outputPath).size;
-      let attempts = 0;
-      const maxAttempts = 3;
-      
-      while (size > targetBytes && attempts < maxAttempts) {
-        attempts++;
-        // Reduce bitrate more aggressively
-        videoBitrateKbps = Math.max(100, Math.floor(videoBitrateKbps * 0.80));
-        try {
-          if (fs.existsSync(outputPath)) {
-            fs.unlinkSync(outputPath);
-          }
-        } catch {}
-        
-        const retryResult = await encodeTwoPass(videoBitrateKbps);
-        if (typeof retryResult === 'object' && (retryResult as any).status === 'canceled') {
-          return retryResult;
-        }
-        size = fs.statSync(outputPath).size;
-      }
-    } catch (err) {
-      console.warn('Could not validate/adjust output size:', err);
-    }
-
-    return outputPath;
+  
+  let videoBitrateKbps = Math.max(200, Math.floor(effectiveTargetBits / duration / 1000) - audioBitrateKbps);
+  
+  if (duration > 60) {
+    const durationMultiplier = Math.min(1.2, 1 + (duration - 60) / 600);
+    videoBitrateKbps = Math.floor(videoBitrateKbps * durationMultiplier);
   }
 
-  // Single-pass encoding for fast and standard modes
-  // Try CRF mode first for standard quality (better quality/size ratio)
-  let useCRF = compressionQuality === 'standard';
-  let firstResult = await encodeOnce(videoBitrateKbps, useCRF);
+  let firstResult = await encodeVideo(videoBitrateKbps);
   if (typeof firstResult === 'object' && (firstResult as any).status === 'canceled') {
     return firstResult;
   }
 
   try {
     let size = fs.statSync(outputPath).size;
+    const tolerance = targetBytes * 0.10;
     let attempts = 0;
-    const maxAttempts = 3;
+    const maxAttempts = 2;
     
-    while (size > targetBytes && attempts < maxAttempts) {
+    while (size > targetBytes + tolerance && attempts < maxAttempts) {
       attempts++;
-      // If CRF mode was used and overshoot, switch to bitrate mode
-      if (useCRF && attempts === 1) {
-        useCRF = false;
-        // Recalculate bitrate more conservatively
-        videoBitrateKbps = Math.max(100, Math.floor(videoBitrateKbps * 0.85));
-      } else {
-        // Reduce bitrate progressively
-        videoBitrateKbps = Math.max(100, Math.floor(videoBitrateKbps * 0.85));
-      }
+      videoBitrateKbps = Math.max(200, Math.floor(videoBitrateKbps * 0.80));
+      console.log(`[Export] Retry ${attempts}: Target ${targetMB}MB, got ${(size / 1024 / 1024).toFixed(2)}MB, reducing bitrate to ${videoBitrateKbps}k`);
       
       try {
         if (fs.existsSync(outputPath)) {
@@ -1564,11 +1186,15 @@ ipcMain.handle('export-video', async (
         }
       } catch {}
       
-      const retryResult = await encodeOnce(videoBitrateKbps, useCRF);
+      const retryResult = await encodeVideo(videoBitrateKbps);
       if (typeof retryResult === 'object' && (retryResult as any).status === 'canceled') {
         return retryResult;
       }
       size = fs.statSync(outputPath).size;
+    }
+    
+    if (size > targetBytes + tolerance && attempts >= maxAttempts) {
+      console.warn(`[Export] Final size ${(size / 1024 / 1024).toFixed(2)}MB exceeds target ${targetMB}MB after ${maxAttempts} attempts`);
     }
   } catch (err) {
     console.warn('Could not validate/adjust output size:', err);
