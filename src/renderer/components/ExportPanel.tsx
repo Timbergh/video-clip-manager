@@ -52,6 +52,9 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
   const [audioMode, setAudioMode] = useState<AudioMode>("combine");
   type OutputType = "video" | "mp3";
   const [outputType, setOutputType] = useState<OutputType>("video");
+  type CompressionQuality = "fast" | "standard" | "high";
+  const [compressionQuality, setCompressionQuality] =
+    useState<CompressionQuality>("standard");
 
   // Format dropdowns
   type VideoFormat = "mp4" | "mov" | "avi" | "mkv";
@@ -158,6 +161,15 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
       ) {
         setAudioFormat(savedAudioFormat as AudioFormat);
       }
+      const savedCompressionQuality = localStorage.getItem(
+        "export.compressionQuality"
+      ) as CompressionQuality | null;
+      if (
+        savedCompressionQuality &&
+        ["fast", "standard", "high"].includes(savedCompressionQuality)
+      ) {
+        setCompressionQuality(savedCompressionQuality as CompressionQuality);
+      }
     } catch {}
     generatePreviewThumbnail();
   }, []);
@@ -249,6 +261,40 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
     } catch {}
   }, [audioFormat]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("export.compressionQuality", compressionQuality);
+    } catch {}
+  }, [compressionQuality]);
+
+  // Restart when compression quality changes
+  useEffect(() => {
+    const isMp3 = outputType === "mp3";
+    if (isMp3) return;
+    if (selectedSize === "original") return;
+    if (!hasStartedProcessing) return;
+    const restart = async () => {
+      if (isProcessing) {
+        setExportStatus("Updating compression quality...");
+        setHasProcessed(false);
+        setProcessedVideoPath(null);
+        setThumbnailPath(null);
+        setExportProgress(0);
+        setIsProcessing(true);
+        try {
+          await api.cancelExport();
+        } catch {}
+        setTimeout(() => {
+          handleExport();
+        }, 50);
+      } else {
+        handleExport();
+      }
+    };
+    restart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compressionQuality]);
+
   // Restart when output type changes
   useEffect(() => {
     if (!hasStartedProcessing) return;
@@ -273,6 +319,58 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
     restart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outputType]);
+
+  // Restart when audio format changes (for MP3 export)
+  useEffect(() => {
+    if (outputType !== "mp3") return;
+    if (!hasStartedProcessing) return;
+    const restart = async () => {
+      if (isProcessing) {
+        setExportStatus("Updating audio format...");
+        setHasProcessed(false);
+        setProcessedVideoPath(null);
+        setThumbnailPath(null);
+        setExportProgress(0);
+        setIsProcessing(true);
+        try {
+          await api.cancelExport();
+        } catch {}
+        setTimeout(() => {
+          handleExport();
+        }, 50);
+      } else {
+        handleExport();
+      }
+    };
+    restart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioFormat]);
+
+  // Restart when video format changes (for video export)
+  useEffect(() => {
+    if (outputType !== "video") return;
+    if (!hasStartedProcessing) return;
+    const restart = async () => {
+      if (isProcessing) {
+        setExportStatus("Updating video format...");
+        setHasProcessed(false);
+        setProcessedVideoPath(null);
+        setThumbnailPath(null);
+        setExportProgress(0);
+        setIsProcessing(true);
+        try {
+          await api.cancelExport();
+        } catch {}
+        setTimeout(() => {
+          handleExport();
+        }, 50);
+      } else {
+        handleExport();
+      }
+    };
+    restart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoFormat]);
 
   const generateThumbnail = async (
     videoPath: string,
@@ -417,7 +515,8 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
         targetSizeMB,
         token,
         audioMode,
-        outputType
+        outputType,
+        compressionQuality
       );
       if (
         result &&
@@ -675,6 +774,79 @@ const ExportPanel: React.FC<ExportPanelProps> = ({
           </label>
         </div>
       </div>
+
+      {/* Compression quality options */}
+      {selectedSize !== "original" && outputType === "video" && (
+        <div className="size-selection" style={{ marginTop: 8 }}>
+          <h3
+            style={{
+              marginTop: 0,
+              marginBottom: 8,
+              fontSize: 14,
+              fontWeight: 500,
+            }}
+          >
+            Compression Quality
+          </h3>
+          <div className="tracks-options">
+            <label
+              className={`size-option ${
+                compressionQuality === "fast" ? "selected" : ""
+              } first`}
+            >
+              <input
+                type="radio"
+                name="compressionQuality"
+                value="fast"
+                checked={compressionQuality === "fast"}
+                onChange={() => setCompressionQuality("fast")}
+              />
+              <div className="btn tracks-option-content" data-glow>
+                <span className="size-label">Fast</span>
+                <span className="quality-description">
+                  Faster, lower quality
+                </span>
+              </div>
+            </label>
+            <label
+              className={`size-option ${
+                compressionQuality === "standard" ? "selected" : ""
+              }`}
+            >
+              <input
+                type="radio"
+                name="compressionQuality"
+                value="standard"
+                checked={compressionQuality === "standard"}
+                onChange={() => setCompressionQuality("standard")}
+              />
+              <div className="btn tracks-option-content" data-glow>
+                <span className="size-label">Standard</span>
+                <span className="quality-description">Balanced</span>
+              </div>
+            </label>
+            <label
+              className={`size-option ${
+                compressionQuality === "high" ? "selected" : ""
+              } last`}
+            >
+              <input
+                type="radio"
+                name="compressionQuality"
+                value="high"
+                checked={compressionQuality === "high"}
+                onChange={() => setCompressionQuality("high")}
+              />
+              <div className="btn tracks-option-content" data-glow>
+                <span className="size-label">High Quality</span>
+                <span className="quality-description">
+                  Best quality, slowest
+                </span>
+              </div>
+            </label>
+          </div>
+        </div>
+      )}
 
       {/* Export format dropdowns */}
       <h3 style={{ marginTop: 24 }}>Export Format</h3>

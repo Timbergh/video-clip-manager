@@ -4,6 +4,7 @@ import VideoPlayer from "../components/VideoPlayer";
 import Timeline from "../components/Timeline";
 import VideoInfoPanel from "../components/VideoInfoPanel";
 import ExportPanel from "../components/ExportPanel";
+import FullscreenControls from "../components/FullscreenControls";
 import { useGlowEffect } from "../hooks/useGlowEffect";
 import {
   VideoFile,
@@ -68,9 +69,11 @@ const EditorView: React.FC = () => {
   });
   const [gradientCenter, setGradientCenter] = useState({ x: 50, y: 45 });
   const [showExportPanel, setShowExportPanel] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const [contentHash, setContentHash] = useState<string>("");
   const [isFavorite, setIsFavorite] = useState(false);
+  const [masterVolume, setMasterVolume] = useState(1.0);
   const [editsLoaded, setEditsLoaded] = useState(false);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -364,7 +367,8 @@ const EditorView: React.FC = () => {
       const volume = currentVolumesRef.current[bufferIndex] ?? 1.0;
       const track = audioTracks[bufferIndex];
       const effectiveVolume = track?.isMuted ? 0 : volume;
-      gainNode.gain.value = effectiveVolume;
+      // Apply master volume to all tracks
+      gainNode.gain.value = effectiveVolume * masterVolume;
 
       source.connect(gainNode);
       gainNode.connect(audioContext.destination);
@@ -456,8 +460,10 @@ const EditorView: React.FC = () => {
         setTrimEnd(dur);
       }
 
-      // Ensure video is muted
-      videoRef.current.muted = true;
+      // Mute video if audio tracks are being played separately
+      if (audioBuffers.length > 0) {
+        videoRef.current.muted = true;
+      }
 
       // Seek to trim start if it's set
       if (trimStart > 0) {
@@ -499,8 +505,21 @@ const EditorView: React.FC = () => {
     if (gainNodesRef.current[arrayIndex]) {
       const track = audioTracks.find((t) => t.index === trackIndex);
       const effectiveVolume = track?.isMuted ? 0 : volume;
-      gainNodesRef.current[arrayIndex].gain.value = effectiveVolume;
+      // Apply master volume
+      gainNodesRef.current[arrayIndex].gain.value = effectiveVolume * masterVolume;
     }
+  };
+
+  // Update master volume and apply to all gain nodes
+  const handleMasterVolumeChange = (volume: number) => {
+    setMasterVolume(volume);
+    // Apply to all currently playing gain nodes
+    gainNodesRef.current.forEach((gainNode, index) => {
+      const track = audioTracks[index];
+      const trackVolume = currentVolumesRef.current[index] ?? 1.0;
+      const effectiveVolume = track?.isMuted ? 0 : trackVolume;
+      gainNode.gain.value = effectiveVolume * volume;
+    });
   };
 
   const handleMuteToggle = (trackIndex: number) => {
@@ -519,7 +538,8 @@ const EditorView: React.FC = () => {
         const effectiveVolume = updatedTrack?.isMuted
           ? 0
           : updatedTrack?.volume ?? 1.0;
-        gainNodesRef.current[arrayIndex].gain.value = effectiveVolume;
+        // Apply master volume
+        gainNodesRef.current[arrayIndex].gain.value = effectiveVolume * masterVolume;
       }
 
       return updated;
@@ -608,6 +628,13 @@ const EditorView: React.FC = () => {
     };
   }, [trimStart, trimEnd, audioTracks, editsLoaded, contentHash]);
 
+  // Mute video when audio tracks are loaded
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = audioBuffers.length > 0;
+    }
+  }, [audioBuffers.length]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -622,6 +649,24 @@ const EditorView: React.FC = () => {
       }
     };
   }, []);
+
+  const handleToggleFullscreen = React.useCallback(async () => {
+    if (!isFullscreen) {
+      try {
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+      } catch (error) {
+        console.error("Error entering fullscreen:", error);
+      }
+    } else {
+      try {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      } catch (error) {
+        console.error("Error exiting fullscreen:", error);
+      }
+    }
+  }, [isFullscreen]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -645,6 +690,16 @@ const EditorView: React.FC = () => {
           e.preventDefault();
           // Await to maintain user gesture context
           void handlePlayPause();
+          break;
+        case "f":
+          e.preventDefault();
+          void handleToggleFullscreen();
+          break;
+        case "Escape":
+          if (isFullscreen) {
+            e.preventDefault();
+            void handleToggleFullscreen();
+          }
           break;
         case "ArrowLeft":
           e.preventDefault();
@@ -677,7 +732,7 @@ const EditorView: React.FC = () => {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [currentTime, duration, isPlaying, handlePlayPause, handleSeek]);
+  }, [currentTime, duration, isPlaying, isFullscreen, handlePlayPause, handleSeek, handleToggleFullscreen]);
 
   const handleBack = () => {
     // Show black overlay and hide light rays immediately
@@ -687,6 +742,39 @@ const EditorView: React.FC = () => {
 
     navigate("/");
   };
+
+  const handleDeleteVideo = async () => {
+    if (!video) return;
+
+    const confirmed = confirm(
+      `Are you sure you want to delete "${video.name}"? This will move it to trash.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await api.trashFiles([video.path]);
+      // Show black overlay and hide light rays immediately
+      if ((window as any).__showOverlay) {
+        (window as any).__showOverlay();
+      }
+      navigate("/");
+    } catch (error) {
+      console.error("Error deleting video:", error);
+      alert("Failed to delete video. See console for details.");
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
 
   const handleColorChange = (colors: MultiZoneColors) => {
     setTargetColors(colors);
@@ -855,7 +943,9 @@ const EditorView: React.FC = () => {
 
   return (
     <div
-      className={`editor-view ${isResizingTimeline ? "resizing-timeline" : ""}`}
+      className={`editor-view ${isResizingTimeline ? "resizing-timeline" : ""} ${
+        isFullscreen ? "fullscreen" : ""
+      }`}
       style={backgroundStyle}
     >
       <div className="editor-view-overlay"></div>
@@ -901,7 +991,7 @@ const EditorView: React.FC = () => {
             </svg>
             Export
           </button>
-          <WindowControls />
+          {!isFullscreen && <WindowControls />}
         </div>
       </header>
 
@@ -917,27 +1007,62 @@ const EditorView: React.FC = () => {
               onEnded={handleVideoEnded}
               onColorChange={handleColorChange}
               playerRef={videoPlayerRef}
-            />
-          </div>
-
-          <div className="editor-sidebar">
-            <VideoInfoPanel
-              videoName={video.name}
-              videoPath={video.path}
-              metadata={metadata}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={handleToggleFullscreen}
+              currentTime={currentTime}
+              duration={duration}
+              onPlayPause={handlePlayPause}
+              onSeek={handleSeek}
               trimStart={trimStart}
               trimEnd={trimEnd}
-              isFavorite={isFavorite}
-              onToggleFavorite={handleToggleFavorite}
+              onSkipToStart={handleSkipToTrimStart}
+              onSkipToEnd={handleSkipToTrimEnd}
+              hasAudioTracks={audioBuffers.length > 0}
+              onMasterVolumeChange={handleMasterVolumeChange}
+              masterVolume={masterVolume}
             />
+            {isFullscreen && (
+              <FullscreenControls
+                currentTime={currentTime}
+                duration={duration}
+                isPlaying={isPlaying}
+                onPlayPause={handlePlayPause}
+                onSeek={handleSeek}
+                onExitFullscreen={handleToggleFullscreen}
+                videoRef={videoRef}
+                trimStart={trimStart}
+                trimEnd={trimEnd}
+                onSkipToStart={handleSkipToTrimStart}
+                onSkipToEnd={handleSkipToTrimEnd}
+                hasAudioTracks={audioBuffers.length > 0}
+                onMasterVolumeChange={handleMasterVolumeChange}
+                masterVolume={masterVolume}
+              />
+            )}
           </div>
+
+          {!isFullscreen && (
+            <div className="editor-sidebar">
+              <VideoInfoPanel
+                videoName={video.name}
+                videoPath={video.path}
+                metadata={metadata}
+                trimStart={trimStart}
+                trimEnd={trimEnd}
+                isFavorite={isFavorite}
+                onToggleFavorite={handleToggleFavorite}
+                onDelete={handleDeleteVideo}
+              />
+            </div>
+          )}
         </div>
 
-        <div
-          ref={timelineBottomRef}
-          className="timeline-bottom"
-          style={timelineHeight ? { height: `${timelineHeight}px` } : {}}
-        >
+        {!isFullscreen && (
+          <div
+            ref={timelineBottomRef}
+            className="timeline-bottom"
+            style={timelineHeight ? { height: `${timelineHeight}px` } : {}}
+          >
           <div
             className={`timeline-resize-handle ${
               isResizingTimeline ? "active" : ""
@@ -1050,7 +1175,8 @@ const EditorView: React.FC = () => {
             onVolumeChange={handleVolumeChange}
             onMuteToggle={handleMuteToggle}
           />
-        </div>
+          </div>
+        )}
       </div>
 
       {showLoadingIndicator && (

@@ -65,5 +65,5 @@ jobs:
           path: |
             **\electron-builder*.log
             **\app-builder*.log
-            C:\Users\runneradmin\AppData\Roaming\Clipfolio\logs\*
+            C:\Users\runneradmin\AppData\Roaming\video-clip-manager\logs\*
             C:\Users\runneradmin\AppData\Roaming\*\logs\*

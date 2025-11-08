@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   VideoColorSampler,
   ColorRGB,
   MultiZoneColors,
 } from "../utils/colorSampler";
+import TimelineControls from "./TimelineControls";
 import "../styles/VideoPlayer.css";
 
 interface VideoPlayerProps {
@@ -15,6 +16,19 @@ interface VideoPlayerProps {
   onEnded: () => void;
   onColorChange?: (colors: MultiZoneColors) => void;
   playerRef?: React.RefObject<HTMLDivElement | null>;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+  currentTime?: number;
+  duration?: number;
+  onPlayPause?: () => void;
+  onSeek?: (time: number) => void;
+  trimStart?: number;
+  trimEnd?: number;
+  onSkipToStart?: () => void;
+  onSkipToEnd?: () => void;
+  hasAudioTracks?: boolean;
+  onMasterVolumeChange?: (volume: number) => void;
+  masterVolume?: number;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -26,11 +40,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onEnded,
   onColorChange,
   playerRef,
+  isFullscreen = false,
+  onToggleFullscreen,
+  currentTime = 0,
+  duration = 0,
+  onPlayPause,
+  onSeek,
+  trimStart = 0,
+  trimEnd = 0,
+  onSkipToStart,
+  onSkipToEnd,
+  hasAudioTracks = false,
+  onMasterVolumeChange,
+  masterVolume = 1.0,
 }) => {
   const internalPlayerRef = useRef<HTMLDivElement>(null);
   const actualPlayerRef = playerRef || internalPlayerRef;
   const samplerRef = useRef<VideoColorSampler | null>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
+  const [isHovered, setIsHovered] = useState(false);
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     samplerRef.current = new VideoColorSampler();
@@ -104,6 +133,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     attemptSample();
   };
 
+  useEffect(() => {
+    if (isHovered && !isFullscreen && onToggleFullscreen) {
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current);
+      }
+      hideTimeoutRef.current = setTimeout(() => {
+        setIsHovered(false);
+      }, 3000);
+    }
+
+    return () => {
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current);
+      }
+    };
+  }, [isHovered, isFullscreen, onToggleFullscreen]);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      // Mute video if audio tracks are being played separately
+      videoRef.current.muted = hasAudioTracks;
+    }
+  }, [hasAudioTracks, videoRef]);
+
   const handleError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
     const video = e.currentTarget;
     console.error("[VideoPlayer] Video error:", {
@@ -117,7 +170,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   return (
-    <div className="video-player" ref={actualPlayerRef}>
+    <div
+      className="video-player"
+      ref={actualPlayerRef}
+      onMouseEnter={() => {
+        if (!isFullscreen) {
+          setIsHovered(true);
+          if (hideTimeoutRef.current) {
+            clearTimeout(hideTimeoutRef.current);
+          }
+        }
+      }}
+      onMouseMove={() => {
+        if (!isFullscreen) {
+          setIsHovered(true);
+          if (hideTimeoutRef.current) {
+            clearTimeout(hideTimeoutRef.current);
+          }
+        }
+      }}
+      onMouseLeave={() => {
+        if (!isFullscreen) {
+          setIsHovered(false);
+        }
+      }}
+    >
       <video
         ref={videoRef}
         src={window.path.toLocalURL(videoPath)}
@@ -126,9 +203,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onEnded={onEnded}
         onError={handleError}
         controls={false}
-        muted={true}
+        muted={false}
         crossOrigin="anonymous"
       />
+      <div className={`video-hover-controls ${isHovered ? "visible" : ""}`}>
+        {onPlayPause && onSeek && duration > 0 && (
+          <TimelineControls
+            currentTime={currentTime}
+            duration={duration}
+            isPlaying={isPlaying}
+            onPlayPause={onPlayPause}
+            onSeek={onSeek}
+            onSkipToStart={onSkipToStart}
+              onSkipToEnd={onSkipToEnd}
+              onToggleFullscreen={onToggleFullscreen}
+              isFullscreen={isFullscreen}
+              videoRef={videoRef}
+              hasAudioTracks={hasAudioTracks}
+              onMasterVolumeChange={onMasterVolumeChange}
+              masterVolume={masterVolume}
+            />
+        )}
+      </div>
     </div>
   );
 };

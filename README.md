@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="src/assets/ClipfolioLogo.svg" alt="Clipfolio Logo" width="200"/>
+  <img src="src/assets/VCMLogo.svg" alt="Video Clip Manager Logo" width="200"/>
 </div>
 
-# Clipfolio - A video clip manager
+# VCM - Video Clip Manager
 
 A desktop app for managing and editing your video clips. Trim, adjust audio, and compress clips for easy sharing on platforms like Discord.
 
-> **Note:** Clipfolio is for editing existing videos - it doesn't record or capture footage.
+> **Note:** VCM is for editing existing videos - it doesn't record or capture footage.
 
 ## What it does
 
@@ -17,7 +17,7 @@ A desktop app for managing and editing your video clips. Trim, adjust audio, and
 - **Export** - Export and download edited clips
 - **Discord sharing** - Compress clips to 10MB and drag-and-drop directly into Discord
 
-**[Download Latest Release](https://github.com/Timbergh/clipfolio/releases/latest)**
+**[Download Latest Release](https://github.com/Timbergh/video-clip-manager/releases/latest)**
 
 ## License
 

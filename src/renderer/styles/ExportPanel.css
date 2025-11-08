@@ -4,8 +4,9 @@
   backdrop-filter: blur(30px);
   -webkit-backdrop-filter: blur(30px);
   margin-top: auto;
-  max-height: 80vh;
+  max-height: 90vh;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .export-panel h3 {
@@ -31,6 +32,15 @@
   position: relative;
 }
 
+.tracks-options {
+  width: 100%;
+}
+
+.tracks-options .size-option {
+  flex: 1;
+  min-width: 0;
+}
+
 .size-options {
   gap: 0;
   width: fit-content;
@@ -49,9 +59,16 @@
 .size-option-content.size-option-content,
 .tracks-option-content.tracks-option-content {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 10px 18px;
+  padding: 10px 14px;
+  min-height: 50px;
+}
+
+.tracks-option-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .size-option-content.size-option-content {
@@ -97,6 +114,13 @@
   font-size: 13px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.95);
+}
+
+.quality-description {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* Continue button - transparent with purple hover */

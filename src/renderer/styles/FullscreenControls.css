@@ -1,0 +1,26 @@
+.fullscreen-controls {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.fullscreen-controls .timeline-controls-container {
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.fullscreen-controls.visible .timeline-controls-container {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: all;
+}
+

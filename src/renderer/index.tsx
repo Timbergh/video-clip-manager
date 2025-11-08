@@ -2,7 +2,10 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 
-console.log("%cClipfolio", "font-size: 24px; font-weight: bold; color: #fff;");
+console.log(
+  "%cVideo Clip Manager",
+  "font-size: 24px; font-weight: bold; color: #fff;"
+);
 const version = (window as any).api?.getVersion?.();
 console.log(`%cVersion ${version}`, "font-size: 14px; color: #888;");
 
@@ -31,7 +34,7 @@ const consoleCommands = {
   help: () => {
     console.log(
       `
-%cClipfolio Console Commands:
+%cVideo Clip Manager Console Commands:
 %cAvailable commands:
   clearCache() - Clear all app caches (thumbnails, metadata, audio)
   help() - Show this help message
@@ -48,11 +51,11 @@ const consoleCommands = {
 };
 
 // Expose commands to global scope
-(window as any).clipfolio = consoleCommands;
+(window as any).vcm = consoleCommands;
 
 // Show help on load
 console.log(
-  "%cType clipfolio.help() for available commands",
+  "%cType vcm.help() for available commands",
   "color: #888; font-style: italic;"
 );
 

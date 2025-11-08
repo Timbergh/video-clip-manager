@@ -37,7 +37,8 @@ export interface IElectronAPI {
     targetSizeMB?: number,
     jobId?: string,
     audioMode?: 'combine' | 'separate',
-    outputType?: 'video' | 'mp3'
+    outputType?: 'video' | 'mp3',
+    compressionQuality?: 'fast' | 'standard' | 'high'
   ) => Promise<any>;
   cancelExport: () => Promise<boolean>;
   extractAudioTracks: (videoPath: string, outputDir: string) => Promise<string[]>;

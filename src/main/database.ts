@@ -38,7 +38,7 @@ export interface ClipRecord {
  */
 export function initDatabase(): void {
   const userDataPath = app.getPath('userData');
-  const dbPath = path.join(userDataPath, 'clipfolio.db');
+  const dbPath = path.join(userDataPath, 'vcm.db');
 
   console.log('[Database] Initializing database at:', dbPath);
 

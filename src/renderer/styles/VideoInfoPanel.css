@@ -271,3 +271,15 @@
   color: rgb(252, 211, 77);
   transform: scale(1.1);
 }
+
+.delete-icon {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+
+.delete-icon:hover {
+  color: rgba(239, 68, 68, 0.9);
+  transform: scale(1.1);
+}

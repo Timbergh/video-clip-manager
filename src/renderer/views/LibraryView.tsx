@@ -8,7 +8,7 @@ import { VideoFile, VideoFileWithMetadata, SortBy, SortOrder } from "../types";
 import "../styles/LibraryView.css";
 import "../styles/GlowWrapper.css";
 import WindowControls from "../components/WindowControls";
-import LogoUrl from "../../assets/ClipfolioLogo.svg";
+import LogoUrl from "../../assets/VCMLogo.svg";
 
 const api = window.api;
 const path = window.path;
@@ -461,9 +461,7 @@ const LibraryView: React.FC = () => {
             height="48"
           />
           <h1 className="app-title">
-            <span className="clip">CLIP</span>
-            <span className="dot">·</span>
-            <span className="folio">FOLIO</span>
+            <span className="title">V.C.M</span>
             <span className="version">{appVersion}</span>
           </h1>
         </div>

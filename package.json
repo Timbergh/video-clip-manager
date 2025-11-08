@@ -1,6 +1,6 @@
 {
-  "name": "clipfolio",
-  "version": "1.0.1",
+  "name": "video-clip-manager",
+  "version": "1.0.2",
   "description": "A simple video clip manager",
   "main": "dist/main/main.js",
   "scripts": {
@@ -34,12 +34,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Timbergh/clipfolio.git"
+    "url": "https://github.com/Timbergh/video-clip-manager.git"
   },
   "bugs": {
-    "url": "https://github.com/Timbergh/clipfolio/issues"
+    "url": "https://github.com/Timbergh/video-clip-manager/issues"
   },
-  "homepage": "https://github.com/Timbergh/clipfolio#readme",
+  "homepage": "https://github.com/Timbergh/video-clip-manager#readme",
   "type": "commonjs",
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",
@@ -82,8 +82,8 @@
     "react-router-dom": "^7.9.4"
   },
   "build": {
-    "appId": "com.clipfolio.app",
-    "productName": "Clipfolio",
+    "appId": "com.videoclipmanager.app",
+    "productName": "Video Clip Manager",
     "icon": "src/assets/icon.ico",
     "directories": {
       "output": "build"
@@ -110,7 +110,7 @@
         "nsis"
       ],
       "icon": "src/assets/icon.ico",
-      "artifactName": "Clipfolio-${version}-Setup.${ext}"
+      "artifactName": "VCM-${version}-Setup.${ext}"
     },
     "mac": {
       "target": [
@@ -131,7 +131,7 @@
       {
         "provider": "github",
         "owner": "Timbergh",
-        "repo": "clipfolio"
+        "repo": "video-clip-manager"
       }
     ],
     "npmRebuild": false
