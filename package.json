@@ -1,6 +1,6 @@
 {
   "name": "video-clip-manager",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A simple video clip manager",
   "main": "dist/main/main.js",
   "scripts": {
